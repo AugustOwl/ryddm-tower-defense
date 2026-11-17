@@ -16,10 +16,10 @@
 [ext_resource type="Script" uid="uid://dbmry1xh4rw2y" path="res://ui/ap_display.gd" id="13"]
 [ext_resource type="Script" uid="uid://djq7gwfm64n0g" path="res://ui/pause_menu.gd" id="14"]
 [ext_resource type="Script" uid="uid://dr68ja6cerqs2" path="res://systems/rally_controller.gd" id="15"]
-[ext_resource type="Script" path="res://ui/game_over_popup.gd" id="16"]
-[ext_resource type="Script" path="res://systems/music_director.gd" id="17"]
-[ext_resource type="Script" path="res://systems/campaign.gd" id="18"]
-[ext_resource type="Script" path="res://ui/main_menu.gd" id="19"]
+[ext_resource type="Script" uid="uid://co1s0csh8pxdj" path="res://ui/game_over_popup.gd" id="16"]
+[ext_resource type="Script" uid="uid://chic1jpsxxcu3" path="res://systems/music_director.gd" id="17"]
+[ext_resource type="Script" uid="uid://ro0ct2xs3jfb" path="res://systems/campaign.gd" id="18"]
+[ext_resource type="Script" uid="uid://cwyjt5lwpeheq" path="res://ui/main_menu.gd" id="19"]
 
 [node name="Main" type="Node3D" unique_id=1481173591]
 script = ExtResource("1")
@@ -49,10 +49,10 @@ script = ExtResource("8")
 [node name="RallyController" type="Node" parent="." unique_id=726835410]
 script = ExtResource("15")
 
-[node name="MusicDirector" type="Node" parent="."]
+[node name="MusicDirector" type="Node" parent="." unique_id=1750178348]
 script = ExtResource("17")
 
-[node name="Campaign" type="Node" parent="."]
+[node name="Campaign" type="Node" parent="." unique_id=1726014295]
 script = ExtResource("18")
 
 [node name="LevelEditor" type="Node" parent="." unique_id=187870942]
@@ -102,8 +102,8 @@ vertical_alignment = 2
 [node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1224239383]
 script = ExtResource("14")
 
-[node name="GameOverPopup" type="CanvasLayer" parent="."]
+[node name="GameOverPopup" type="CanvasLayer" parent="." unique_id=1350799210]
 script = ExtResource("16")
 
-[node name="MainMenu" type="CanvasLayer" parent="."]
+[node name="MainMenu" type="CanvasLayer" parent="." unique_id=1840628276]
 script = ExtResource("19")

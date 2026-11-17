@@ -101,6 +101,7 @@ func reset_state() -> void:
 	board.refresh()                               # rebuilds from the level, so destroyed enemy bases come back
 	units.clear()
 	towers.clear()
+	_place_level_structures()
 	ai.reset()
 	player.reset()
 	base_hp = base_max_hp
@@ -116,6 +117,17 @@ func reset_state() -> void:
 	pathing.refresh()
 	territory.refresh()
 	_refresh_base_labels()
+
+
+## Build the structures the level editor placed (enemy and neutral ones). Unknown or invalid entries are skipped.
+func _place_level_structures() -> void:
+	for entry in board.level.structures:
+		var cell: Vector2i = entry.get("cell", HexGrid.NO_CELL)
+		var info := StructureDefs.find(str(entry.get("type", "")))
+		if info.is_empty() or not board.is_walkable(cell) or cell == board.base or board.is_spawn(cell) \
+				or towers.towers.has(cell):
+			continue
+		towers.place(cell, info["def"], info["side"], true)
 
 
 ## The editor changed the LevelData: rebuild everything derived from it.

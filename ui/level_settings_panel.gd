@@ -109,10 +109,10 @@ func _build_enemy_tab() -> void:
 	_spin(box, "First build (s)", _enemy, "ai_first_build_delay", 0, 120, 1)
 	_spin(box, "Build every (s)", _enemy, "ai_build_interval", 2, 90, 1)
 	_spin(box, "Max command posts", _enemy, "ai_max_posts", 0, 10, 1)
-	_spin(box, "Max turrets", _enemy, "ai_max_turrets", 0, 30, 1)
+	_spin(box, "Max turrets / slow / barracks", _enemy, "ai_max_turrets", 0, 30, 1)
+	_spin(box, "Max enemy barracks", _enemy, "ai_max_barracks", 0, 10, 1)
 	_check(box, "Turrets cover busy hexes", _enemy, "ai_threat_tracking")
-	_check(box, "Desperation moves (hurt bases)", _enemy, "ai_desperation")
-	_spin(box, "Burst at base HP <=", _enemy, "ai_desperation_hp", 1, 50, 1)
+	_spin(box, "Desperation at base HP <= (0 = off)", _enemy, "ai_desperation_hp", 0, 50, 1)
 
 	box.add_child(_text("Enemy deck: spawn weight per unit (0 = never)"))
 	for key: String in EnemyDefs.TYPES:

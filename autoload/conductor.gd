@@ -71,7 +71,8 @@ var _onset_cooldown := 0.0
 
 func _init() -> void:
 	# Registered here too (not only in project.godot) so shaders always find them.
-	var existing := RenderingServer.global_shader_parameter_get_list()
+	# (global_shader_parameter_get_list() can't be used to check: outside the editor it returns an empty list, which
+	# made every name look unregistered and caused the "already exists" error. Ask the project settings instead.)
 	for entry in [
 		[&"beat_pulse", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 0.0],
 		[&"beat_phase", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 0.0],
@@ -83,7 +84,7 @@ func _init() -> void:
 		[&"color_drain", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 0.0],
 		[&"beat_color", RenderingServer.GLOBAL_VAR_TYPE_COLOR, Color(0.35, 0.85, 1.0)],
 	]:
-		if not existing.has(entry[0]):
+		if not ProjectSettings.has_setting("shader_globals/" + str(entry[0])):
 			RenderingServer.global_shader_parameter_add(entry[0], entry[1], entry[2])
 
 

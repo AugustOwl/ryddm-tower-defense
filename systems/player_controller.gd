@@ -11,12 +11,17 @@ extends Node
 @export var ap_regen := 0.4                  ## AP per second of game time (so it slows during card-setting slow-mo)
 @export var shuffle_every_ap := 2.0          ## every time this much AP has been generated, the hand reshuffles
 
+@export_group("Quick shuffle")
+@export var shuffle_cooldown := 30.0         ## seconds (of game time) before the SHUFFLE button can be used again
+
 var ap := 0.0
 var ap_rate := 0.0                           ## current AP/s including farm towers
 var shuffle_progress := 0.0                  ## AP generated since the last shuffle
 var selected_card := -1                      ## index into TowerDefs.CARDS while a card is being set, else -1
 var selected_slot := -1                      ## which slot that card came from
 var deck_counts := {}                        ## the current deck: card name -> copies (see DeckStore)
+var shuffle_left := 0.0                      ## seconds until the quick-shuffle button is ready
+var spent_spells := {}                       ## spell card name -> copies already played this run (gone until a restart)
 
 var _game: Game
 var _hand: CardHand
@@ -36,6 +41,7 @@ func setup(game: Game) -> void:
 	_hand.slot_dropped_on_saved.connect(store_card)        # drag a card onto the saved slot (any AP)
 	_hand.slot_drag_started.connect(_on_drag_started)
 	_hand.slot_drag_ended.connect(_on_drag_ended)
+	_hand.shuffle_pressed.connect(_on_shuffle_pressed)
 	_make_cursor_nodes()
 	reset()
 
@@ -43,17 +49,33 @@ func setup(game: Game) -> void:
 func reset() -> void:
 	ap = minf(ap_start, ap_max)
 	shuffle_progress = 0.0
+	shuffle_left = 0.0
+	spent_spells.clear()                                       # spell cards come back with a new run
 	cancel_card()
 	Conductor.set_manual_slow(false)                           # a new run never starts slowed
+	_hand.set_deck(DeckStore.to_pool(deck_counts))
 	_hand.reset_hand()
 
 
 ## Use a new deck (card name -> copies): future draws come from it and the hand is reshuffled right away.
-## Saving it to disk is DeckStore.save_deck's job (the pause menu does both).
+## Saving it to disk is DeckStore.save_deck's job (the pause menu does both). Spells already played this run stay gone.
 func apply_deck(counts: Dictionary) -> void:
 	deck_counts = counts
-	_hand.set_deck(DeckStore.to_pool(counts))
+	var left := counts.duplicate()
+	for card_name in spent_spells:
+		left[card_name] = maxi(int(left.get(card_name, 0)) - int(spent_spells[card_name]), 0)
+	_hand.set_deck(DeckStore.to_pool(left))
 	_hand.shuffle(selected_slot)
+
+
+## The SHUFFLE button: throw away the whole hand and deal a new one, then wait out the cooldown.
+func _on_shuffle_pressed() -> void:
+	if shuffle_left > 0.0 or _game.mode != Game.Mode.PLAY or _game.game_over:
+		return
+	cancel_card()
+	_hand.shuffle()
+	shuffle_left = shuffle_cooldown
+	Conductor.accent(0.5)
 
 
 ## Show or hide the play-mode cursor visuals (hidden while editing a level).
@@ -69,6 +91,9 @@ func tick(delta: float) -> void:
 	var gained := ap_rate * delta
 	ap = minf(ap_max, ap + gained)
 	shuffle_progress += gained
+	shuffle_left = maxf(shuffle_left - delta, 0.0)
+	_hand.shuffle_left = shuffle_left
+	_hand.shuffle_total = shuffle_cooldown
 	if shuffle_progress >= shuffle_every_ap and not _hand.is_dragging():   # every couple of AP, reshuffle the hand
 		shuffle_progress = fmod(shuffle_progress, shuffle_every_ap)
 		_hand.shuffle(selected_slot)                     # the saved card and the card being set stay put
@@ -143,24 +168,85 @@ func _on_slot_clicked(slot: int) -> void:
 	else:
 		var card := _hand.type_at(slot)
 		if card >= 0 and ap >= TowerDefs.CARDS[card]["cost"]:     # not enough AP: it can't be played
-			select_card(slot)
+			if _is_spell(card):
+				_cast_spell(slot)                      # spells need no target: they go off at once
+			else:
+				select_card(slot)
 
 
 ## Picking a card up to drag it sets it (range preview, hover colors) if you can afford it.
 func _on_drag_started(slot: int) -> void:
 	var card := _hand.type_at(slot)
-	if card >= 0 and ap >= TowerDefs.CARDS[card]["cost"]:
+	if card >= 0 and ap >= TowerDefs.CARDS[card]["cost"] and not _is_spell(card):    # a dragged spell has nothing to aim
 		select_card(slot)
 
 
 ## Dropping on the board builds the tower on the hex under the cursor; anywhere else the card snaps back.
 func _on_drag_ended(slot: int, over_field: bool) -> void:
-	if selected_slot != slot:                      # not set (can't afford it) or already frozen into the saved slot
+	var dropped := _hand.type_at(slot)                 # (over_field means it wasn't dropped on the saved slot)
+	if over_field and dropped >= 0 and _is_spell(dropped) and ap >= TowerDefs.CARDS[dropped]["cost"]:
+		_cast_spell(slot)                              # a spell dropped on the board is cast
+		return
+	if selected_slot != slot:                     # not set (can't afford it) or already frozen into the saved slot
 		return
 	if over_field:
 		_try_play_selected_card()
 	if selected_slot == slot:                      # nothing was built
 		cancel_card()
+
+
+func _is_spell(card_index: int) -> bool:
+	return TowerDefs.CARDS[card_index]["kind"] == "spell"
+
+
+## Cast the spell card in `slot`. If it has nothing to act on it isn't spent. A cast spell is gone for the rest of
+## the run: its AP is paid, the hand refills, and that copy is taken out of the deck until a restart.
+func _cast_spell(slot: int) -> void:
+	var card_index := _hand.type_at(slot)
+	var def: Dictionary = TowerDefs.CARDS[card_index]
+	var cast := false
+	match def["spell"]:
+		"summon":
+			cast = _spell_summon(def)
+		"haste":
+			cast = _spell_haste(def)
+	if not cast:
+		return
+	ap -= def["cost"]
+	spent_spells[def["name"]] = int(spent_spells.get(def["name"], 0)) + 1
+	_hand.remove_from_pool(card_index)                 # before consume(), so the refill can't draw it again
+	_hand.consume(slot)
+	Conductor.accent(0.6)
+
+
+## Group random spawn: min..max mobs in total, each at a random one of your spawn points (your base and every
+## spawner tower you own, using the mob type each one makes). They don't count toward those spawners' caps.
+func _spell_summon(def: Dictionary) -> bool:
+	var points: Array = [[_game.board.base, _game.units.base_minion_type]]
+	for t: Tower in _game.towers.towers.values():
+		if t.side == Team.PLAYER and t.kind == "spawner":
+			points.append([t.cell, t.def.get("mob", "marcher")])
+	for _i in randi_range(def["min"], def["max"]):
+		var point: Array = points[randi() % points.size()]
+		_game.units.spawn_mob(point[0], point[1], false)
+		_game.effects.ring(HexGrid.to_world(point[0]) + Vector3(0, 0.05, 0), 0.9, def["accent"])
+	return true
+
+
+## Speed up min..max random mobs of yours for a few seconds. With no mobs out there is nothing to cast on.
+func _spell_haste(def: Dictionary) -> bool:
+	var live: Array[Mob] = []
+	for m in _game.units.mobs:
+		if not m.dead:
+			live.append(m)
+	if live.is_empty():
+		return false
+	live.shuffle()
+	for m in live.slice(0, mini(randi_range(def["min"], def["max"]), live.size())):
+		m.haste_left = def["duration"]
+		m.haste_mult = def["speed_mult"]
+		_game.effects.ring(m.node.position + Vector3(0, 0.05, 0), 0.7, def["accent"])
+	return true
 
 
 ## Start "setting" a card: the game slows and the music muffles until the card is played or cancelled.

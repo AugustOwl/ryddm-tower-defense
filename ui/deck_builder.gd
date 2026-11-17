@@ -24,7 +24,7 @@ func setup(game: Game) -> void:
 	add_child(title)
 
 	var hint := Label.new()
-	hint.text = "Pick up to %d cards (copies count). More copies of a card = drawn more often." % DeckStore.limit
+	hint.text = "Pick up to %d cards and %d spells (copies count). More copies = drawn more often. A spell is gone for the run once played." % [DeckStore.limit, DeckStore.spell_limit]
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(hint)
 
@@ -72,17 +72,25 @@ func _read_counts() -> Dictionary:
 
 
 func _update_total() -> void:
-	var total := DeckStore.total(_read_counts())
-	_total_label.text = "%d / %d cards" % [total, DeckStore.limit]
+	var counts := _read_counts()
+	_total_label.text = "%d / %d cards     %d / %d spells" % [DeckStore.total(counts), DeckStore.limit,
+			DeckStore.spell_total(counts), DeckStore.spell_limit]
 
 
-## A box changed: refuse to go past the deck limit.
+## A box changed: refuse to go past the card limit (or, for a spell card, the separate spell limit).
 func _on_count_changed(card_name: String) -> void:
-	var over := DeckStore.total(_read_counts()) - DeckStore.limit
+	var counts := _read_counts()
+	var is_spell := false
+	for card in TowerDefs.CARDS:
+		if card["name"] == card_name:
+			is_spell = DeckStore.is_spell(card)
+	var over := (DeckStore.spell_total(counts) - DeckStore.spell_limit) if is_spell \
+			else (DeckStore.total(counts) - DeckStore.limit)
 	if over > 0:
 		var spin := _spins[card_name] as SpinBox
 		spin.set_value_no_signal(spin.value - over)
-		_status.text = "The deck is full (%d cards). Remove one first." % DeckStore.limit
+		_status.text = ("You can only carry %d spell cards." % DeckStore.spell_limit) if is_spell \
+				else ("The deck is full (%d cards). Remove one first." % DeckStore.limit)
 	else:
 		_status.text = ""
 	_update_total()
@@ -120,8 +128,8 @@ func _card_row(card: Dictionary) -> HBoxContainer:
 	row.add_child(swatch)
 
 	var name_label := Label.new()
-	name_label.text = "  %s" % card["name"]
-	name_label.custom_minimum_size.x = 130
+	name_label.text = "  %s%s" % [card["name"], "  (spell)" if DeckStore.is_spell(card) else ""]
+	name_label.custom_minimum_size.x = 170
 	row.add_child(name_label)
 
 	var cost := Label.new()

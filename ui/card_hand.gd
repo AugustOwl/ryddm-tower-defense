@@ -8,6 +8,7 @@ extends Control
 signal slot_clicked(slot: int)
 signal slot_right_clicked(slot: int)
 signal slot_dropped_on_saved(slot: int)        ## a hand card was dragged onto the saved slot (works at any AP)
+signal shuffle_pressed                         ## the quick-shuffle button was clicked (only possible when it is ready)
 signal slot_drag_started(slot: int)            ## a hand card was picked up for dragging
 signal slot_drag_ended(slot: int, over_field: bool)   ## released; over_field = the cursor was out over the board
 
@@ -51,6 +52,10 @@ var _lift: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _hovered := -1
 const DRAG_THRESHOLD := 8.0                    ## pixels a press must move before it counts as a drag
 
+var shuffle_left := 0.0        ## seconds until the quick-shuffle button is ready again (set by the owner)
+var shuffle_total := 30.0      ## the full cooldown, for the button's fill bar
+
+var _shuffle_button: Button
 var _saved_box: Panel
 var _saved_style: StyleBoxFlat
 var _saved_style_hot: StyleBoxFlat
@@ -100,6 +105,14 @@ func setup(types: Array, pool: Array[int] = []) -> void:
 	var l := _label("SAVED  [4]\ndrop a card here", Vector2(0, 6), 12, HORIZONTAL_ALIGNMENT_CENTER, Color(1, 1, 1, 0.55), card_size.x * saved_scale)
 	_saved_box.add_child(l)
 	add_child(_saved_box)
+
+	_shuffle_button = Button.new()                      # sits right after the three hand cards
+	_shuffle_button.text = "SHUFFLE"
+	_shuffle_button.focus_mode = Control.FOCUS_NONE     # so Space (slow-motion) never "presses" it
+	_shuffle_button.custom_minimum_size = Vector2(96, 64)
+	_shuffle_button.size = Vector2(96, 64)
+	_shuffle_button.pressed.connect(func() -> void: shuffle_pressed.emit())
+	add_child(_shuffle_button)
 
 	var now := Time.get_ticks_msec()
 	for i in HAND_SIZE:
@@ -166,10 +179,21 @@ func _random_type(for_slot := -1) -> int:
 	return pick
 
 
+## Take one copy of card `type_index` out of the deck for the rest of the run (a played spell card).
+func remove_from_pool(type_index: int) -> void:
+	var i := _pool.find(type_index)
+	if i >= 0:
+		_pool.remove_at(i)
+
+
 ## One random card index from the deck (cards with more copies come up more often).
 func _draw_card() -> int:
-	if _pool.is_empty():
-		return randi() % _types.size()
+	if _pool.is_empty():                              # nothing left: any non-spell card
+		var options: Array[int] = []
+		for i in _types.size():
+			if _types[i]["kind"] != "spell":
+				options.append(i)
+		return options[randi() % options.size()] if not options.is_empty() else 0
 	return _pool[randi() % _pool.size()]
 
 
@@ -352,6 +376,11 @@ func _process(_delta: float) -> void:
 		card.rotation = sin(t * 1.1 + i * 1.7) * tilt_radians
 		card.scale = Vector2.ONE * pop
 		_style_card(card, i == selected)
+
+	# Quick-shuffle button, right after the hand cards; shows the cooldown while it recharges.
+	_shuffle_button.position = Vector2(margin.x + HAND_SIZE * (card_size.x + gap), hand_top + (card_size.y - _shuffle_button.size.y) / 2.0)
+	_shuffle_button.disabled = shuffle_left > 0.0 or _drag_slot >= 0
+	_shuffle_button.text = "SHUFFLE\n%ds" % ceili(shuffle_left) if shuffle_left > 0.0 else "SHUFFLE\nready"
 
 	# Saved slot: static box; a card inside is frozen (no bob, tilt or lift).
 	var box_size := card_size * saved_scale

@@ -16,5 +16,7 @@ var speed_scale := 1.0             ## per-level speed multiplier (EnemySettings)
 var wander_left := 0.0            ## seconds of erratic movement remaining
 var slow_left := 0.0               ## seconds of slow remaining
 var slow_factor := 1.0
+var neutral := false               ## a neutral unit (see NeutralDefs): hostile to both sides, doesn't count as a kill
+var home := HexGrid.NO_CELL        ## the barracks / den that made it (NO_CELL for units from an enemy base)
 var partner: Mob = null            ## the mob it is locked in a duel with (see UnitManager._duel), or null
 var dead := false

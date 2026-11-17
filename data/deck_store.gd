@@ -7,9 +7,12 @@ extends RefCounted
 
 const PATH := "user://deck.json"
 const MAX_COPIES := 2                  ## copies of a single card
-const STARTING_LIMIT := 6              ## cards allowed in the deck at the start
+const STARTING_LIMIT := 8              ## cards allowed in the deck at the start
+
+const STARTING_SPELL_LIMIT := 2        ## spell cards allowed in the deck at the start (a separate limit)
 
 static var limit := STARTING_LIMIT     ## cards allowed in the deck right now
+static var spell_limit := STARTING_SPELL_LIMIT   ## spell cards allowed in the deck right now
 
 
 ## The default deck: a mix of damage, a cheap shooter, turf / economy and mobs (one copy each).
@@ -17,7 +20,7 @@ static func starter_deck() -> Dictionary:
 	var counts := {}
 	for card in TowerDefs.CARDS:
 		counts[card["name"]] = 0
-	for card_name in ["Pulse", "Rapid", "Farm", "Barracks"]:
+	for card_name in ["Pulse", "Rapid", "Farm", "Barracks", "Summon"]:       # Summon is a spell card
 		if counts.has(card_name):
 			counts[card_name] = 1
 	return counts
@@ -61,21 +64,43 @@ static func save_deck(counts: Dictionary) -> bool:
 	return true
 
 
+static func is_spell(card: Dictionary) -> bool:
+	return card["kind"] == "spell"
+
+
+## Tower / mob cards in the deck (copies count). Spell cards have their own count: see spell_total.
 static func total(counts: Dictionary) -> int:
 	var n := 0
-	for k in counts:
-		n += int(counts[k])
+	for card in TowerDefs.CARDS:
+		if not is_spell(card):
+			n += int(counts.get(card["name"], 0))
 	return n
 
 
-## Drop copies (later cards first) until the deck fits the limit.
+## Spell cards in the deck (copies count). They have their own separate limit, `spell_limit`.
+static func spell_total(counts: Dictionary) -> int:
+	var n := 0
+	for card in TowerDefs.CARDS:
+		if is_spell(card):
+			n += int(counts.get(card["name"], 0))
+	return n
+
+
+## Drop copies (later cards first) until the deck fits both limits (cards and spells are counted separately).
 static func fit_to_limit(counts: Dictionary) -> Dictionary:
 	var fitted := {}
 	var room := limit
+	var spell_room := spell_limit
 	for card in TowerDefs.CARDS:
-		var keep := mini(int(counts.get(card["name"], 0)), room)
+		var want := int(counts.get(card["name"], 0))
+		var keep := 0
+		if is_spell(card):
+			keep = mini(want, spell_room)
+			spell_room -= keep
+		else:
+			keep = mini(want, room)
+			room -= keep
 		fitted[card["name"]] = keep
-		room -= keep
 	return fitted
 
 
@@ -87,5 +112,6 @@ static func to_pool(counts: Dictionary) -> Array[int]:
 			pool.append(i)
 	if pool.is_empty():                              # never leave the player without cards
 		for i in TowerDefs.CARDS.size():
-			pool.append(i)
+			if not is_spell(TowerDefs.CARDS[i]):
+				pool.append(i)
 	return pool

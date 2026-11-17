@@ -7,11 +7,12 @@ extends Node
 ## random map, save / load levels as .tres files in res://levels/, then press Play to try the level.
 ## The toolbar is built in code at the top of the screen.
 
-enum Brush { FLOOR, ERASE, WALL, BASE, SPAWN }
+enum Brush { FLOOR, ERASE, WALL, BASE, SPAWN, STRUCTURE }
 
 const LEVEL_DIR := "res://levels"
 
 var brush: int = Brush.FLOOR
+var structure_type := "turret"               ## which structure the STRUCTURE brush places (a key of StructureDefs)
 
 var _game: Game
 var _panel: PanelContainer
@@ -81,6 +82,23 @@ func _build_toolbar() -> void:
 		b.pressed.connect(func() -> void: brush = which)
 		brushes.add_child(b)
 	box.add_child(brushes)
+
+	# Row 1b: structures to put on the map. Click a hex to place one (click it again to remove it); right-click
+	# a structure to remove it. Enemy ones are built when the level starts and count toward the enemy's caps;
+	# wild ones are hostile to both sides.
+	var structures := HBoxContainer.new()
+	structures.add_child(_label("Place:"))
+	for entry in StructureDefs.PLACEABLE:
+		var sb := Button.new()
+		sb.text = entry[1]
+		sb.toggle_mode = true
+		sb.button_group = group
+		var key: String = entry[0]
+		sb.pressed.connect(func() -> void:
+			brush = Brush.STRUCTURE
+			structure_type = key)
+		structures.add_child(sb)
+	box.add_child(structures)
 
 	# Row 2: random generation
 	var gen := HBoxContainer.new()
@@ -249,6 +267,11 @@ func _paint(cell: Vector2i, is_click: bool) -> void:
 	_last_cell = cell
 	var active: int = Brush.ERASE if _drag_button == MOUSE_BUTTON_RIGHT else brush
 	var changed := false
+	if active == Brush.ERASE and _structure_index(cell) >= 0:      # erasing a structure leaves the floor alone
+		if _drag_button == MOUSE_BUTTON_RIGHT or brush == Brush.ERASE:
+			_remove_structure(cell)
+			_game.level_edited()
+			return
 	match active:
 		Brush.FLOOR:
 			changed = _add_floor(cell)
@@ -260,6 +283,8 @@ func _paint(cell: Vector2i, is_click: bool) -> void:
 			changed = is_click and _set_base(cell)
 		Brush.SPAWN:
 			changed = is_click and _toggle_spawn(cell)
+		Brush.STRUCTURE:
+			changed = is_click and _toggle_structure(cell)
 	if changed:
 		_game.level_edited()
 
@@ -282,6 +307,7 @@ func _erase(c: Vector2i) -> bool:
 	level.tiles.erase(c)
 	level.walls.erase(c)
 	level.spawns.erase(c)
+	_remove_structure(c)
 	return true
 
 
@@ -290,8 +316,8 @@ func _set_wall(c: Vector2i, want_wall: bool) -> bool:
 	if not level.tiles.has(c) or level.walls.has(c) == want_wall:
 		return false
 	if want_wall:
-		if c == level.base or level.spawns.has(c):
-			say("Can't put a wall on the base or a spawn.")
+		if c == level.base or level.spawns.has(c) or _structure_index(c) >= 0:
+			say("Can't put a wall on the base, a spawn or a structure.")
 			return false
 		level.walls.append(c)
 	else:
@@ -302,6 +328,9 @@ func _set_wall(c: Vector2i, want_wall: bool) -> bool:
 func _set_base(c: Vector2i) -> bool:
 	var level := _game.board.level
 	if not level.tiles.has(c) or level.walls.has(c) or level.base == c:
+		return false
+	if _structure_index(c) >= 0:
+		say("Remove the structure on that hex first.")
 		return false
 	level.spawns.erase(c)
 	level.base = c
@@ -315,8 +344,48 @@ func _toggle_spawn(c: Vector2i) -> bool:
 	if level.spawns.has(c):
 		level.spawns.erase(c)
 	else:
+		if _structure_index(c) >= 0:
+			say("Remove the structure on that hex first.")
+			return false
 		level.spawns.append(c)
 	return true
+
+
+## Index of the structure on `c` in LevelData.structures, or -1.
+func _structure_index(c: Vector2i) -> int:
+	var list := _game.board.level.structures
+	for i in list.size():
+		if list[i].get("cell") == c:
+			return i
+	return -1
+
+
+## Place the selected structure on `c`; clicking the same kind again removes it, a different kind replaces it.
+func _toggle_structure(c: Vector2i) -> bool:
+	var level := _game.board.level
+	if not level.tiles.has(c) or level.walls.has(c) or c == level.base or level.spawns.has(c):
+		say("Structures go on free floor hexes (not walls, the base or a spawn).")
+		return false
+	var i := _structure_index(c)
+	if i >= 0:
+		var same: bool = level.structures[i].get("type") == structure_type
+		_remove_structure(c)
+		if same:
+			return true
+	var info := StructureDefs.find(structure_type)
+	if info.is_empty():
+		return false
+	level.structures.append({"cell": c, "type": structure_type})
+	_game.towers.place(c, info["def"], info["side"], true)       # show it right away
+	return true
+
+
+func _remove_structure(c: Vector2i) -> void:
+	var i := _structure_index(c)
+	if i < 0:
+		return
+	_game.board.level.structures.remove_at(i)
+	_game.towers.remove(c)
 
 
 # ---------- Hover highlight ----------
@@ -343,6 +412,6 @@ func _process(_delta: float) -> void:
 	var colors := {
 		Brush.FLOOR: Color(0.4, 0.8, 1.0, 0.35), Brush.ERASE: Color(1.0, 0.3, 0.3, 0.35),
 		Brush.WALL: Color(0.8, 0.8, 0.8, 0.35), Brush.BASE: Color(0.2, 0.5, 1.0, 0.45),
-		Brush.SPAWN: Color(1.0, 0.3, 0.2, 0.45),
+		Brush.SPAWN: Color(1.0, 0.3, 0.2, 0.45), Brush.STRUCTURE: Color(1.0, 0.8, 0.2, 0.45),
 	}
 	_hover_material.albedo_color = colors[Brush.ERASE if _drag_button == MOUSE_BUTTON_RIGHT else brush]

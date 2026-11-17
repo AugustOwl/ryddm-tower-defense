@@ -47,6 +47,12 @@ levels/              saved levels (.tres)
   enemies, on top of destroying all bases), *Music* (one track or a DJ playlist that switches on a timer, when a
   base falls, or every N kills) and *Look* (colors and particle amount / speed / size / lifetime).
   Everything is saved inside the level's `.tres` file.
+- **Structures on the map (level creator, "Place:" row):** click a hex to put an **enemy** turret / slow tower /
+  barracks / command post or a **wild** (neutral) turret / den on it; click again to remove it (right-click removes
+  it too). Enemy ones are the enemy's own, so they count toward its caps; wild ones shoot and fight *both* sides.
+  Wild dens spawn critters that wander near the den. Definitions: `data/enemy_defs.gd` (`STRUCTURES`) and
+  `data/neutral_defs.gd`. The enemy commander also builds slow towers and barracks by itself
+  (`Max enemy barracks` in the Enemy tab).
 - **Tuning:** most numbers are `@export`s: select a node in `main.tscn` and use the inspector.
 
 ## Levels and the playlist
@@ -56,6 +62,15 @@ levels/              saved levels (.tres)
 - The start menu: **Play playlist** (in order), **Choose a level**, **Edit playlist** (add / remove / reorder, saved
   automatically), **Level creator**. Levels you save in the creator are appended to the playlist automatically.
 - Winning a playlist level offers **Next level**; losing offers **Restart level**; both offer **Main menu**.
+
+## Quick shuffle and spell cards
+- The **SHUFFLE** button sits right after the three hand cards. It throws the whole hand away and deals a new one,
+  then recharges for 30 seconds of game time (`PlayerController.shuffle_cooldown`).
+- **Spell cards** (`"kind": "spell"` in `data/tower_defs.gd`) cost AP like towers but need no target: click one (or
+  drop it on the board) and it goes off, and that copy is **gone for the rest of the run**. A deck can hold 2 spell
+  cards on top of its normal card limit (`DeckStore.spell_limit`). Spells so far: **Summon** (3-5 mobs appear at
+  random spawn points: your base and your barracks / camps) and **Haste** (2-3 random mobs of yours run 2x faster
+  for 8 seconds; not spent if you have no mobs out).
 
 ## Deck
 - Build your deck from the **main menu** or the **pause menu** (Deck builder). It holds at most **4 cards** to start

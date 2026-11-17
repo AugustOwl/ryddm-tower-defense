@@ -9,10 +9,11 @@ extends Node
 ## Turrets are placed where they cover the most threat (hexes already covered by enemy turrets count for less), so
 ## the commander reinforces the routes you actually use. Command posts still push toward your base.
 ##
-## Desperation (opt-in per level, EnemySettings.ai_desperation). Each enemy base can use two abilities, once each:
+## Desperation (on for a level whenever EnemySettings.ai_desperation_hp is 1 or more). Each enemy base can use two
+## abilities, once each:
 ##   Retreat  at half HP the base relocates to a safer hex (behind its own lines, out of your turf) and the commander
 ##            builds two structures right away, ignoring the turret cap.
-##   Burst    at EnemySettings.ai_desperation_hp (default 3) the base unleashes a shockwave that destroys every one of
+##   Burst    at EnemySettings.ai_desperation_hp the base unleashes a shockwave that destroys every one of
 ##            your mobs near it, becomes invincible for a few seconds, and spawns a burst of units.
 
 @export_group("Threat")
@@ -123,17 +124,32 @@ func _pick_threat_cell(candidates: Array[Vector2i], def: Dictionary) -> Vector2i
 
 # ---------- Building ----------
 
-## Choose "post" or "turret" (or "" for nothing this round). While your units are busy hexes the commander leans
-## toward turrets. `ignore_caps` (desperation) lifts the turret limit.
+## Choose what to build: "post", "turret", "sniper", "slow" (a slow tower) or "barracks" (or "" for nothing this round).
+## Everything that isn't a post counts toward the turret cap; barracks also have their own cap. While your units are
+## busy hexes the commander leans toward turrets and slow towers. `ignore_caps` (desperation) lifts the turret cap.
 func _choose_kind(settings: EnemySettings, ignore_caps: bool) -> String:
 	var posts := _game.towers.count_kind(Team.ENEMY, "command")
 	var turrets := _game.towers.count_side(Team.ENEMY) - posts
 	var busy := settings.ai_threat_tracking and _total_threat() >= threat_react_level
 	# Keep roughly two turrets per post, with some randomness (less of it while there is a threat to answer).
 	var want_post := posts < settings.ai_max_posts and (turrets >= posts * 2 or (not busy and randf() < 0.35))
-	if not want_post and turrets >= settings.ai_max_turrets and not ignore_caps:
+	if want_post:
+		return "post"
+	if turrets >= settings.ai_max_turrets and not ignore_caps:
 		return ""
-	return "post" if want_post else "turret"
+	# Weighted pick. While your units are busy on a route, snipers and slow towers are favored and barracks are not.
+	var weights := {"turret": 5.0, "sniper": 3.0 if busy else 1.5, "slow": 3.0 if busy else 1.5}
+	if not busy and _game.towers.count_kind(Team.ENEMY, "spawner") < settings.ai_max_barracks:
+		weights["barracks"] = 1.5
+	var total := 0.0
+	for w in weights.values():
+		total += w
+	var roll := randf() * total
+	for kind in weights:
+		roll -= weights[kind]
+		if roll <= 0.0:
+			return kind
+	return "turret"
 
 
 ## Place one structure. Returns true if something was built.
@@ -141,19 +157,20 @@ func _build_something(settings: EnemySettings, ignore_caps: bool) -> bool:
 	var kind := _choose_kind(settings, ignore_caps)
 	if kind == "":
 		return false
-	var cell := _pick_cell(kind == "post")
+	var cell := _pick_cell(kind)
 	if cell == HexGrid.NO_CELL:
 		return false
 	_game.towers.place(cell, EnemyDefs.STRUCTURES[kind], Team.ENEMY)
 	return true
 
 
-## A free cell in enemy territory (outside the player's). Posts take the cell closest to the player's base.
-## Turrets go where they cover the most threat; with no threat to answer they pick randomly among the best few
-## cells closest to the base.
-func _pick_cell(for_post: bool) -> Vector2i:
+## A free cell in enemy territory (outside the player's) for a structure of type `kind` (a key of
+## EnemyDefs.STRUCTURES). Posts take the cell closest to the player's base. Turrets and slow towers go where they
+## cover the most threat; otherwise (and for barracks) they pick randomly among the best few cells closest to the base.
+func _pick_cell(kind: String) -> Vector2i:
+	var for_post := kind == "post"
 	var board := _game.board
-	var def: Dictionary = EnemyDefs.STRUCTURES["post" if for_post else "turret"]
+	var def: Dictionary = EnemyDefs.STRUCTURES[kind]
 	var candidates: Array[Vector2i] = []
 	for c in board.tiles:       # command posts may also go 1 hex outside enemy turf (Territory.allows)
 		if board.is_walkable(c) and c != board.base and not board.is_spawn(c) and not _game.towers.towers.has(c) \
@@ -164,7 +181,7 @@ func _pick_cell(for_post: bool) -> Vector2i:
 	candidates.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return HexGrid.distance(a, board.base) < HexGrid.distance(b, board.base))
 
-	if not for_post and _game.enemy_settings.ai_threat_tracking:
+	if (kind == "turret" or kind == "sniper" or kind == "slow") and _game.enemy_settings.ai_threat_tracking:
 		var answer := _pick_threat_cell(candidates, def)
 		if answer != HexGrid.NO_CELL:
 			return answer
@@ -191,7 +208,7 @@ func is_invulnerable(cell: Vector2i) -> bool:
 ## Each ability fires once per base: the retreat at half HP, then the burst at ai_desperation_hp.
 func on_base_hurt(cell: Vector2i, hp: float, max_hp: float) -> void:
 	var settings := _game.enemy_settings
-	if not settings.ai_desperation:
+	if not settings.desperation_on():
 		return
 	if not _retreated.has(cell) and hp <= max_hp * retreat_hp_fraction:
 		_retreated[cell] = true

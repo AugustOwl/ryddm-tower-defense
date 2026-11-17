@@ -13,6 +13,7 @@ extends RefCounted
 ##   "flame"    hits every enemy in a short cone in front of it (cone_deg is the half-angle)
 ##   "farm"     never attacks; adds ap_bonus AP per second while it stands
 ##   "wall"     does nothing; it just stands in the way (towers block paths) and soaks up damage
+##   "spell"    not a tower: a one-shot effect cast when the card is played (key `spell`: "summon" or "haste")
 ##   "spawner"  every `rate` seconds spawns a mob (the `mob` key picks its type from data/mob_defs.gd;
 ##              at most max_mobs alive per spawner)
 ##
@@ -48,6 +49,14 @@ const CARDS: Array[Dictionary] = [
 	{"name": "Camp", "kind": "spawner", "cost": 2, "color": Color("5f7a3b"), "accent": Color("b6e07a"),
 		"range": 0.0, "rate": 5.0, "damage": 0.0, "hp": 30.0, "max_mobs": 3, "mob": "wanderer", "infiltrate": 2,
 		"blurb": "Infiltrator (2 out).\nSpawns wanderers"},
+	# Spell cards ("kind": "spell"): no tower. Playing one casts it at once and it is GONE for the rest of the run.
+	# They have their own deck limit (DeckStore.spell_limit). "spell" picks the effect (see PlayerController).
+	{"name": "Summon", "kind": "spell", "spell": "summon", "cost": 2, "color": Color("3b8fb8"), "accent": Color("a8e4ff"),
+		"range": 0.0, "rate": 0.0, "damage": 0.0, "min": 3, "max": 5,
+		"blurb": "3-5 mobs appear at\nrandom spawn points"},
+	{"name": "Haste", "kind": "spell", "spell": "haste", "cost": 2, "color": Color("b8a02f"), "accent": Color("fff0a0"),
+		"range": 0.0, "rate": 0.0, "damage": 0.0, "min": 2, "max": 3, "speed_mult": 2.0, "duration": 8.0,
+		"blurb": "2-3 of your mobs\nrun 2x faster, 8s"},
 	{"name": "Wall", "kind": "wall", "cost": 2, "color": Color("7a7468"), "accent": Color("cfc7b4"),
 		"range": 0.0, "rate": 0.0, "damage": 0.0, "hp": 120.0, "infiltrate": 2,
 		"blurb": "Blocks the path.\nBuild up to 2 out"},

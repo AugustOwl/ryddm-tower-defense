@@ -3,7 +3,7 @@ extends RefCounted
 ## One placed tower or enemy structure. Behavior lives in TowerManager; this just holds state.
 
 var cell: Vector2i
-var side: int                  ## Team.PLAYER or Team.ENEMY
+var side: int                  ## Team.PLAYER, Team.ENEMY or Team.NEUTRAL
 var def: Dictionary            ## the card / structure definition it was built from
 var kind: String
 var range_world := 0.0         ## attack range in world units

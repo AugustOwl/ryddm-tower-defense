@@ -65,10 +65,26 @@ func count_side(side: int) -> int:
 
 # ---------- Changes ----------
 
-func place(c: Vector2i, def: Dictionary, side: int) -> void:
+## `silent` skips the placement event (used when a level builds its own structures at the start).
+func place(c: Vector2i, def: Dictionary, side: int, silent := false) -> void:
 	towers[c] = _build(c, def, side)
-	GameEvents.tower_placed.emit(HexGrid.to_world(c))
+	if not silent:
+		GameEvents.tower_placed.emit(HexGrid.to_world(c))
 	_changed()
+
+
+## Cell of the closest enemy OR neutral structure within `max_dist` of `pos`, or null (what your mobs and towers attack).
+func nearest_foe(pos: Vector3, max_dist: float) -> Variant:
+	var best = null
+	var best_d := max_dist
+	for c in towers:
+		if towers[c].side == Team.PLAYER:
+			continue
+		var d := pos.distance_to(HexGrid.to_world(c))
+		if d <= best_d:
+			best_d = d
+			best = c
+	return best
 
 
 func remove(c: Vector2i) -> void:
@@ -153,7 +169,12 @@ func _build(c: Vector2i, def: Dictionary, side: int) -> Tower:
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.9, 0.1)
 	bar.mesh = quad
-	bar.material_override = Mats.billboard_bar(Color("6fe07f") if side == Team.PLAYER else Color("ff6b5a"))
+	var bar_color := Color("6fe07f")                  # player
+	if side == Team.ENEMY:
+		bar_color = Color("ff6b5a")
+	elif side == Team.NEUTRAL:
+		bar_color = Color("e8e07a")
+	bar.material_override = Mats.billboard_bar(bar_color)
 	bar.position.y = 1.35
 	bar.visible = false
 	root.add_child(bar)
@@ -183,6 +204,8 @@ func tick(delta: float) -> void:
 		t.cooldown -= delta
 		if t.side == Team.ENEMY:
 			_tick_enemy_tower(t)
+		elif t.side == Team.NEUTRAL:
+			_tick_neutral_tower(t)
 		else:
 			_tick_player_tower(t)
 
@@ -202,7 +225,7 @@ func _tick_player_tower(t: Tower) -> void:
 	var target := _nearest_enemy(pos, t.range_world)
 	if target == null:
 		if t.kind == "shot" and t.cooldown <= 0.0:    # no units around: shoot enemy structures, then enemy bases, in range
-			var victim = nearest(pos, t.range_world, Team.ENEMY)
+			var victim = nearest_foe(pos, t.range_world)          # enemy or neutral structures
 			if victim != null:
 				t.cooldown = t.def["rate"]
 				_aim(t, HexGrid.to_world(victim) - pos)
@@ -263,9 +286,30 @@ func _fire_flame(t: Tower, pos: Vector3, origin: Vector3, dir: Vector3, accent: 
 		_game.effects.beam(origin, pos + dir_n.rotated(Vector3.UP, spread) * reach + Vector3(0, 0.3, 0), accent, 0.1, 0.12)
 
 
-## Enemy turrets shoot player mobs first, otherwise batter player towers in range.
+## Enemy structures: turrets shoot player mobs first, otherwise batter player towers in range; slow towers chill
+## the nearest player mob; barracks keep a few enemy units walking out of them.
 func _tick_enemy_tower(t: Tower) -> void:
-	if t.kind != "shot" or t.cooldown > 0.0:
+	if t.cooldown > 0.0:
+		return
+	if t.kind == "spawner":
+		t.cooldown = t.def["rate"]
+		if _game.units.units_from(t.cell) < t.def["max_units"]:
+			var unit: Dictionary = EnemyDefs.pick_weighted(_game.enemy_settings.unit_weights)
+			_game.units.spawn_enemy(unit, t.cell, t.cell)
+		return
+	if t.kind == "slow":
+		var at := HexGrid.to_world(t.cell)
+		var mob := _nearest_mob(at, t.range_world)
+		if mob != null:
+			t.cooldown = t.def["rate"]
+			mob.slow_left = t.def["slow_time"]
+			mob.slow_factor = t.def["slow_factor"]
+			_aim(t, mob.node.position - at)
+			_game.units.hit_mob(mob, t.def["damage"])
+			_game.effects.beam(at + Vector3(0, 0.65, 0), mob.node.position + Vector3(0, 0.22, 0), t.def["accent"], 0.08)
+			GameEvents.tower_fired.emit(at)
+		return
+	if t.kind != "shot":
 		return
 	var pos := HexGrid.to_world(t.cell)
 	var origin := pos + Vector3(0, 0.65, 0)
@@ -294,6 +338,69 @@ func _tick_enemy_tower(t: Tower) -> void:
 		damage(victim, t.def["damage"])
 		_game.effects.beam(origin, HexGrid.to_world(victim) + Vector3(0, 0.4, 0), Color("ff6b5a"))
 		GameEvents.tower_fired.emit(pos)
+
+
+## Neutral structures are hostile to everyone: wild turrets shoot the nearest enemy unit or player mob in range,
+## and dens keep a few neutral units (critters) around.
+func _tick_neutral_tower(t: Tower) -> void:
+	if t.cooldown > 0.0:
+		return
+	if t.kind == "spawner":
+		t.cooldown = t.def["rate"]
+		if _game.units.units_from(t.cell) < t.def["max_units"]:
+			_game.units.spawn_enemy(NeutralDefs.UNITS[t.def["unit"]], t.cell, t.cell)
+		return
+	if t.kind != "shot":
+		return
+	var pos := HexGrid.to_world(t.cell)
+	var target_pos := Vector3.ZERO
+	var found := false
+	var best := t.range_world
+	var enemy_target: Enemy = null
+	var mob_target: Mob = null
+	for e in _game.units.enemies:
+		if e.dead or e.neutral:
+			continue
+		var d := pos.distance_to(e.node.position)
+		if d <= best:
+			best = d
+			enemy_target = e
+			mob_target = null
+			found = true
+	for m in _game.units.mobs:
+		if m.dead:
+			continue
+		var d := pos.distance_to(m.node.position)
+		if d <= best:
+			best = d
+			mob_target = m
+			enemy_target = null
+			found = true
+	if not found:
+		return
+	t.cooldown = t.def["rate"]
+	if enemy_target != null:
+		target_pos = enemy_target.node.position
+		_game.units.hit_enemy(enemy_target, t.def["damage"])
+	else:
+		target_pos = mob_target.node.position
+		_game.units.hit_mob(mob_target, t.def["damage"])
+	_aim(t, target_pos - pos)
+	_game.effects.beam(pos + Vector3(0, 0.65, 0), target_pos + Vector3(0, 0.25, 0), t.def["accent"])
+	GameEvents.tower_fired.emit(pos)
+
+
+func _nearest_mob(pos: Vector3, max_dist: float) -> Mob:
+	var best: Mob = null
+	var best_d := max_dist
+	for m in _game.units.mobs:
+		if m.dead:
+			continue
+		var d := pos.distance_to(m.node.position)
+		if d <= best_d:
+			best_d = d
+			best = m
+	return best
 
 
 func _nearest_enemy(pos: Vector3, max_dist: float) -> Enemy:

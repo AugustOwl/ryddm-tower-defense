@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://c0dtvh3qgi8bm"
+path="res://.godot/imported/749 samazin - rewards 142bpm (1).mp3-65968eeb638be4001302d3488f4c89b1.mp3str"
+
+[deps]
+
+source_file="res://audio/749 samazin - rewards 142bpm (1).mp3"
+dest_files=["res://.godot/imported/749 samazin - rewards 142bpm (1).mp3-65968eeb638be4001302d3488f4c89b1.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

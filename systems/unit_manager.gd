@@ -93,7 +93,8 @@ func hit_enemy(e: Enemy, damage: float) -> void:
 	GameEvents.enemy_hit.emit(e.node.position, damage)
 	if e.hp <= 0.0:
 		e.dead = true
-		_game.kills += 1
+		if not e.neutral:                              # neutral units don't count toward "defeat N enemies"
+			_game.kills += 1
 		GameEvents.enemy_died.emit(e.node.position)
 
 
@@ -109,7 +110,8 @@ func hit_mob(m: Mob, damage: float) -> void:
 # ---------- Enemies ----------
 
 ## Spawn an enemy at a random living enemy base, or at `at` if given (desperation summons use their own base).
-func spawn_enemy(def: Dictionary, at := HexGrid.NO_CELL) -> void:
+## `home` marks units made by a barracks / den (see units_from); neutral defs (NeutralDefs.UNITS) make neutral units.
+func spawn_enemy(def: Dictionary, at := HexGrid.NO_CELL, home := HexGrid.NO_CELL) -> void:
 	var spawns := _game.board.spawns
 	if spawns.is_empty() and at == HexGrid.NO_CELL:
 		return
@@ -145,8 +147,10 @@ func spawn_enemy(def: Dictionary, at := HexGrid.NO_CELL) -> void:
 	e.cell = cell
 	e.prev = cell
 	var settings := _game.enemy_settings
-	e.speed_scale = settings.speed_scale
-	e.hp = def["hp"] * settings.hp_scale
+	e.neutral = def.get("neutral", false)
+	e.home = home
+	e.speed_scale = 1.0 if e.neutral else settings.speed_scale     # level difficulty only scales the enemy's own units
+	e.hp = def["hp"] * (1.0 if e.neutral else settings.hp_scale)
 	e.max_hp = e.hp
 	e.wander_left = def.get("wander_time", 0.0)
 	enemies.append(e)
@@ -165,6 +169,9 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	if e.slow_left > 0.0:                          # slowed by a Chill tower (or held up by a mob)
 		e.slow_left -= delta
 		speed_mul = e.slow_factor
+	if e.neutral:
+		_update_critter(e, speed_mul, delta)
+		return
 
 	# Behaviors that replace normal movement. To add a behavior, add a case here and to enemy_defs.gd.
 	match e.def["behavior"]:
@@ -245,6 +252,79 @@ func _charge(e: Enemy, target_cell: Vector2i, speed_mul: float, delta: float) ->
 	e.next = HexGrid.NO_CELL
 
 
+## Neutral units (see NeutralDefs): wander near their den and fight whatever comes close, enemy units and your mobs
+## alike. Units already locked in a duel are left alone. Your towers and mobs fight them like any enemy.
+func _update_critter(e: Enemy, speed_mul: float, delta: float) -> void:
+	var dps: float = e.def["melee_dps"]
+	var foe_enemy: Enemy = null
+	var foe_mob: Mob = null
+	var best := mob_melee_range
+	for other in enemies:
+		if other.dead or other.neutral or other.partner != null:
+			continue
+		var d := e.node.position.distance_to(other.node.position)
+		if d <= best:
+			best = d
+			foe_enemy = other
+			foe_mob = null
+	for m in mobs:
+		if m.dead or m.partner != null:
+			continue
+		var d := e.node.position.distance_to(m.node.position)
+		if d <= best:
+			best = d
+			foe_mob = m
+			foe_enemy = null
+	if foe_enemy != null:
+		hit_enemy(foe_enemy, dps * delta)
+		hit_enemy(e, enemy_melee_dps * delta)          # it hits back
+		return
+	if foe_mob != null:
+		hit_mob(foe_mob, dps * delta)
+		hit_enemy(e, mob_dps * delta)
+		return
+
+	if e.next == HexGrid.NO_CELL:
+		e.next = _critter_next_cell(e)
+		if e.next == HexGrid.NO_CELL:
+			return
+	var target := HexGrid.to_world(e.next)
+	var to_target := target - e.node.position
+	var step: float = e.def["speed"] * HexGrid.HEX_W * speed_mul * delta
+	if to_target.length() <= step:
+		e.node.position = target
+		e.prev = e.cell
+		e.cell = e.next
+		e.next = HexGrid.NO_CELL
+	else:
+		e.node.position += to_target.normalized() * step
+
+
+## A random free neighbour hex within the unit's leash of its den (avoiding an immediate U-turn).
+func _critter_next_cell(e: Enemy) -> Vector2i:
+	var anchor := e.home if e.home != HexGrid.NO_CELL else e.cell
+	var options: Array[Vector2i] = []
+	for dir in HexGrid.DIRS:
+		var n: Vector2i = e.cell + dir
+		if _game.board.is_walkable(n) and n != _game.board.base and not _game.board.is_spawn(n) \
+				and not _game.towers.towers.has(n) and HexGrid.distance(anchor, n) <= e.def["leash"]:
+			options.append(n)
+	if options.size() > 1:
+		options.erase(e.prev)
+	if options.is_empty():
+		return HexGrid.NO_CELL
+	return options[randi() % options.size()]
+
+
+## How many living units were made by the barracks / den on `cell`.
+func units_from(cell: Vector2i) -> int:
+	var n := 0
+	for e in enemies:
+		if not e.dead and e.home == cell:
+			n += 1
+	return n
+
+
 # ---------- Mobs ----------
 
 func mob_count(owner_cell: Vector2i) -> int:
@@ -256,7 +336,8 @@ func mob_count(owner_cell: Vector2i) -> int:
 
 
 ## `mob_key` picks the mob type from data/mob_defs.gd.
-func spawn_mob(owner_cell: Vector2i, mob_key := "marcher") -> void:
+## `tracked` = false makes a mob that doesn't count toward its spawner's cap (spell-summoned mobs).
+func spawn_mob(owner_cell: Vector2i, mob_key := "marcher", tracked := true) -> void:
 	var def: Dictionary = MobDefs.TYPES[mob_key]
 	var root := Node3D.new()
 	var body := MeshInstance3D.new()
@@ -272,7 +353,7 @@ func spawn_mob(owner_cell: Vector2i, mob_key := "marcher") -> void:
 	var m := Mob.new()
 	m.def = def
 	m.node = root
-	m.owner_cell = owner_cell
+	m.owner_cell = owner_cell if tracked else HexGrid.NO_CELL
 	m.cell = owner_cell
 	m.prev = owner_cell
 	m.hp = mob_hp * def["hp_mult"]
@@ -334,6 +415,13 @@ func _duel(m: Mob, delta: float) -> bool:
 func _update_mob(m: Mob, delta: float) -> void:
 	if m.dead:
 		return
+	var slow_mul := 1.0
+	if m.slow_left > 0.0:                              # chilled by an enemy slow tower
+		m.slow_left -= delta
+		slow_mul = m.slow_factor
+	if m.haste_left > 0.0:                             # sped up by the Haste spell
+		m.haste_left -= delta
+		slow_mul *= m.haste_mult
 	if m.def.get("pairs_up", false) and _duel(m, delta):
 		return
 	var foe: Enemy = null
@@ -352,7 +440,7 @@ func _update_mob(m: Mob, delta: float) -> void:
 		hit_mob(m, enemy_melee_dps * delta)
 		return
 
-	var structure = _game.towers.nearest(m.node.position, HexGrid.HEX_W * 1.05, Team.ENEMY)
+	var structure = _game.towers.nearest_foe(m.node.position, HexGrid.HEX_W * 1.05)    # enemy or neutral structures
 	if structure != null:
 		_game.towers.damage(structure, mob_dps * delta)
 		return
@@ -365,7 +453,7 @@ func _update_mob(m: Mob, delta: float) -> void:
 		m.wander_left -= delta
 	var target := HexGrid.to_world(m.next)
 	var to_target := target - m.node.position
-	var step: float = mob_speed * m.def["speed_mult"] * HexGrid.HEX_W * delta
+	var step: float = mob_speed * m.def["speed_mult"] * HexGrid.HEX_W * slow_mul * delta
 	if to_target.length() <= step:
 		m.node.position = target
 		m.prev = m.cell

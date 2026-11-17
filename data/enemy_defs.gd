@@ -35,6 +35,15 @@ const STRUCTURES := {
 		"range": 2.6, "rate": 1.0, "damage": 5.0, "hp": 40.0},
 	"post": {"name": "Command Post", "kind": "command", "color": Color("6b2f4a"), "accent": Color("ff7ab8"),
 		"range": 0.0, "rate": 0.0, "damage": 0.0, "command_radius": 2, "hp": 80.0},
+	## Long range, slow and heavy: one-shots most of your mobs from far away. Fragile up close.
+	"sniper": {"name": "Enemy Sniper", "kind": "shot", "color": Color("5a2f6b"), "accent": Color("d89aff"),
+		"range": 5.0, "rate": 2.0, "damage": 15.0, "hp": 30.0},
+	## Slows your nearest mob in range (slow_time seconds, to slow_factor of its speed) with a little damage.
+	"slow": {"name": "Enemy Chiller", "kind": "slow", "color": Color("2f5a6b"), "accent": Color("7ad8ff"),
+		"range": 2.6, "rate": 0.5, "damage": 0.5, "slow_time": 0.8, "slow_factor": 0.4, "hp": 40.0},
+	## Spawns enemy units (picked from the level's unit mix) right at the structure, at most max_units alive at once.
+	"barracks": {"name": "Enemy Barracks", "kind": "spawner", "color": Color("7a2f3f"), "accent": Color("ff8a7a"),
+		"range": 0.0, "rate": 6.0, "damage": 0.0, "hp": 60.0, "max_units": 3},
 }
 
 
