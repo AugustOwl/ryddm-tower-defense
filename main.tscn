@@ -1,0 +1,109 @@
+[gd_scene format=3 uid="uid://wlsyjhjs7ssw"]
+
+[ext_resource type="Script" uid="uid://1lrlwl6dw8o0" path="res://systems/game.gd" id="1"]
+[ext_resource type="Script" uid="uid://b544xk3lppc2k" path="res://systems/camera_rig.gd" id="2"]
+[ext_resource type="AudioStream" uid="uid://chbd46uc0fya8" path="res://audio/728 samazin - global sky 80bpm.mp3" id="2_2cqfq"]
+[ext_resource type="Script" uid="uid://rqv7mpxx51al" path="res://board/board.gd" id="3"]
+[ext_resource type="Script" uid="uid://d4by5j1pj6a4t" path="res://systems/territory.gd" id="4"]
+[ext_resource type="Script" uid="uid://daq4xnr2u424i" path="res://systems/tower_manager.gd" id="5"]
+[ext_resource type="Script" uid="uid://dtaqd6c4ee0bm" path="res://systems/unit_manager.gd" id="6"]
+[ext_resource type="Script" uid="uid://buhkw7ivpf63l" path="res://systems/enemy_ai.gd" id="7"]
+[ext_resource type="Script" uid="uid://bx4etjwui51a" path="res://systems/player_controller.gd" id="8"]
+[ext_resource type="Script" uid="uid://dh3skwiqwtqi2" path="res://systems/level_editor.gd" id="9"]
+[ext_resource type="Script" uid="uid://c8m32eowildfg" path="res://fx/effects.gd" id="10"]
+[ext_resource type="Script" uid="uid://dvyg17cgpuvu0" path="res://ui/hud.gd" id="11"]
+[ext_resource type="Script" uid="uid://2sa6w4kd876f" path="res://ui/card_hand.gd" id="12"]
+[ext_resource type="Script" uid="uid://dbmry1xh4rw2y" path="res://ui/ap_display.gd" id="13"]
+[ext_resource type="Script" uid="uid://djq7gwfm64n0g" path="res://ui/pause_menu.gd" id="14"]
+[ext_resource type="Script" uid="uid://dr68ja6cerqs2" path="res://systems/rally_controller.gd" id="15"]
+[ext_resource type="Script" path="res://ui/game_over_popup.gd" id="16"]
+[ext_resource type="Script" path="res://systems/music_director.gd" id="17"]
+[ext_resource type="Script" path="res://systems/campaign.gd" id="18"]
+[ext_resource type="Script" path="res://ui/main_menu.gd" id="19"]
+
+[node name="Main" type="Node3D" unique_id=1481173591]
+script = ExtResource("1")
+music = ExtResource("2_2cqfq")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=233233988]
+script = ExtResource("2")
+
+[node name="Board" type="Node3D" parent="." unique_id=1686206499]
+script = ExtResource("3")
+
+[node name="Territory" type="Node3D" parent="." unique_id=784672352]
+script = ExtResource("4")
+
+[node name="TowerManager" type="Node" parent="." unique_id=471083785]
+script = ExtResource("5")
+
+[node name="UnitManager" type="Node" parent="." unique_id=1351997721]
+script = ExtResource("6")
+
+[node name="EnemyAI" type="Node" parent="." unique_id=1973846058]
+script = ExtResource("7")
+
+[node name="PlayerController" type="Node" parent="." unique_id=1625188606]
+script = ExtResource("8")
+
+[node name="RallyController" type="Node" parent="." unique_id=726835410]
+script = ExtResource("15")
+
+[node name="MusicDirector" type="Node" parent="."]
+script = ExtResource("17")
+
+[node name="Campaign" type="Node" parent="."]
+script = ExtResource("18")
+
+[node name="LevelEditor" type="Node" parent="." unique_id=187870942]
+script = ExtResource("9")
+
+[node name="Effects" type="Node3D" parent="." unique_id=1536676502]
+script = ExtResource("10")
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1462866604]
+script = ExtResource("11")
+
+[node name="Hand" type="Control" parent="HUD" unique_id=238637070]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("12")
+
+[node name="ApDisplay" type="Control" parent="HUD" unique_id=69584889]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 6.0
+offset_right = 250.0
+offset_bottom = 66.0
+mouse_filter = 2
+script = ExtResource("13")
+
+[node name="Label" type="Label" parent="HUD" unique_id=2061765727]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -440.0
+offset_top = -190.0
+offset_right = -14.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
+horizontal_alignment = 2
+vertical_alignment = 2
+
+[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1224239383]
+script = ExtResource("14")
+
+[node name="GameOverPopup" type="CanvasLayer" parent="."]
+script = ExtResource("16")
+
+[node name="MainMenu" type="CanvasLayer" parent="."]
+script = ExtResource("19")

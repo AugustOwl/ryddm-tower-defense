@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://chbd46uc0fya8"
+path="res://.godot/imported/728 samazin - global sky 80bpm.mp3-10af9ce25846bfe69ecf3ee5505e2af0.mp3str"
+
+[deps]
+
+source_file="res://audio/728 samazin - global sky 80bpm.mp3"
+dest_files=["res://.godot/imported/728 samazin - global sky 80bpm.mp3-10af9ce25846bfe69ecf3ee5505e2af0.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
