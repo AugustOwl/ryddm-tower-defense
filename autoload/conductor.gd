@@ -11,7 +11,8 @@ extends Node
 ##   audio_treble   highs (2-12 kHz): hats, cymbals, sparkle
 ##   audio_texture  how much the sound is changing right now (spectral flux): busy / rough vs. smooth / sustained
 ##   beat_pulse     jumps up when a bass hit lands (onset detection on the real audio), then decays
-##   beat_phase     0..1 flowing clock whose speed follows the loudness of the music (for travelling waves)
+##   beat_phase     flowing clock (wraps at FLOW_PERIOD) whose speed follows the loudness of the music, eased
+##                  (for travelling waves; shaders must use it periodically, e.g. fract(x - phase))
 ##   event_pulse    decaying accent that gameplay events trigger via accent()
 ##   beat_color     the shared reactive tint
 ## In shaders:  global uniform float audio_bass;   (etc.)
@@ -47,6 +48,8 @@ var treble := 0.0
 var texture := 0.0
 var pulse := 0.0
 var flow := 0.0
+var _flow_speed := 0.12
+const FLOW_PERIOD := 64.0
 var event_pulse := 0.0
 
 var slow_amount := 0.0             ## 0 = normal, 1 = fully slowed
@@ -230,7 +233,10 @@ func _analyze(dt: float) -> void:
 	pulse *= exp(-PULSE_DECAY * dt)
 
 	# A flowing clock for travelling waves: louder music flows faster. Not a beat; no tempo involved.
-	flow = fposmod(flow + dt * (0.12 + 0.7 * level_now + 0.5 * bass), 1.0)
+	# The speed eases toward its target (raw loudness and bass jitter every frame, which made rings lurch), and the
+	# clock wraps at FLOW_PERIOD, a whole number divisible by the layer speeds (1, 0.75, 0.5) so the wrap is seamless.
+	_flow_speed = lerpf(_flow_speed, 0.12 + 0.6 * level_now + 0.3 * bass, 1.0 - exp(-1.5 * dt))
+	flow = fposmod(flow + dt * _flow_speed, FLOW_PERIOD)
 
 
 ## Average magnitude (both channels) between two frequencies.

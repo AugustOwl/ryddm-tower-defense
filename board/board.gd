@@ -3,9 +3,27 @@ extends Node3D
 ## The playing field: indexes the current LevelData for fast lookups and builds the 3D tiles, walls,
 ## base / spawn markers and the pulsing background. Call refresh() after the LevelData is modified.
 
-const TILE_H := 0.3                    ## thickness of a floor tile (its top sits at y = 0)
+const TILE_H := 1.2                    ## thickness of a floor tile (its top sits at y = 0): the platforms stand this tall
 const WALL_TOP := 0.6                  ## height of the top of a wall tile
 const LEVEL_SHADER := preload("res://shaders/level_pulse.gdshader")
+const GROUND_SHADER := preload("res://shaders/ground_layer.gdshader")
+const FLOOR_PICK := [35, 65, 80, 92]   ## cumulative % chance of floor colors A, B, C, D (the rest is E)
+## The ground under the platforms is 5 visual layers, top to bottom, over a solid backing plane. The top layer is the
+## most transparent and each one below is more opaque:
+##   "waves"  16-bit style color waves (pixelated, few colors)
+##   "viz1/2/3"  the three ground visualizers; their types are chosen in the Look tab
+##   "disco"  the disco floor, at the very bottom
+## depth = distance below the platforms' underside. drift must keep drift * Conductor.FLOW_PERIOD a whole number.
+const GROUND_LAYERS := [
+	{"kind": "waves", "depth": 0.15, "alpha": 0.08, "lighten": 0.30, "scale": 1.0, "drift": 1.0, "phase": 0.0},
+	{"kind": "viz1", "depth": 0.45, "alpha": 0.16, "lighten": 0.24, "scale": 1.0, "drift": 1.0, "phase": 0.0},
+	{"kind": "viz2", "depth": 0.75, "alpha": 0.26, "lighten": 0.18, "scale": 0.75, "drift": 0.75, "phase": 0.33},
+	{"kind": "viz3", "depth": 1.05, "alpha": 0.38, "lighten": 0.12, "scale": 0.55, "drift": 0.5, "phase": 0.66},
+	{"kind": "disco", "depth": 1.35, "alpha": 0.60, "lighten": 0.0, "scale": 1.0, "drift": 1.0, "phase": 0.0},
+]
+const LAYER_PRIORITY := -50            ## render priority of the top ground layer (deeper ones are lower)
+const LABEL_PRIORITY := 20             ## render priority of the base / enemy base name tags (always on top)
+const GROUND_BOTTOM_DEPTH := 1.7      ## the solid backing plane under all the layers
 
 var level: LevelData
 var tiles: Dictionary = {}             ## Vector2i -> true (floor and walls)
@@ -17,10 +35,10 @@ var _labels := {}                      ## base / spawn cell -> its floating Labe
 var _visuals: Node3D                   ## container for everything built from the level (rebuilt on refresh)
 var _hex_mesh: CylinderMesh
 var _wall_mesh: CylinderMesh
-var _floor_a: ShaderMaterial
-var _floor_b: ShaderMaterial
+var _floors: Array[ShaderMaterial] = []   ## one material per floor color (A..E)
 var _wall_material: ShaderMaterial
-var _background_material: ShaderMaterial
+var _background_material: ShaderMaterial  ## the solid bottom of the ground
+var _ground_layers: Array[ShaderMaterial] = []   ## the translucent layers above it (same order as GROUND_LAYERS)
 
 
 func _ready() -> void:
@@ -44,10 +62,25 @@ func refresh() -> void:
 		walls[w] = true
 	base = level.base
 	spawns = level.spawns.duplicate()
-	_floor_a = level_material(level.style.floor_color_a, 0.10, 0.25, 0.15)
-	_floor_b = level_material(level.style.floor_color_b, 0.10, 0.25, 0.15)
+	_floors.clear()
+	for i in 5:
+		_floors.append(level_material(Color.WHITE, 0.10, 0.25, 0.15))
 	_wall_material = level_material(level.style.wall_color, 0.25, 0.0, 0.1)
-	_background_material = level_material(level.style.background_color, 0.25, 1.2, 0.9)
+	_background_material = level_material(level.style.background_color, 0.10, 0.4, 0.0)
+	_ground_layers.clear()
+	for i in GROUND_LAYERS.size():
+		var layer: Dictionary = GROUND_LAYERS[i]
+		var g := ShaderMaterial.new()
+		g.shader = GROUND_SHADER
+		# Transparent surfaces are otherwise sorted by distance, which can draw these huge planes over labels and
+		# effects. A low fixed priority keeps them behind everything (the top layer drawn last of the layers).
+		g.render_priority = LAYER_PRIORITY - i
+		g.set_shader_parameter("layer_alpha", layer.alpha)
+		g.set_shader_parameter("pattern_scale", layer.scale)
+		g.set_shader_parameter("drift", layer.drift)
+		g.set_shader_parameter("phase_offset", layer.phase)
+		_ground_layers.append(g)
+	apply_style()
 	_rebuild_visuals()
 
 
@@ -74,10 +107,34 @@ func set_label(c: Vector2i, text: String) -> void:
 ## The level's colors changed (live edit in the level creator): recolor without rebuilding anything.
 func apply_style() -> void:
 	var style := level.style
-	_floor_a.set_shader_parameter("base_color", style.floor_color_a)
-	_floor_b.set_shader_parameter("base_color", style.floor_color_b)
+	var colors := [style.floor_color_a, style.floor_color_b, style.floor_color_c, style.floor_color_d, style.floor_color_e]
+	for i in _floors.size():
+		var f := _floors[i]
+		f.set_shader_parameter("base_color", colors[i])
+		f.set_shader_parameter("pulse_strength", 0.10 * style.floor_reactivity)
+		f.set_shader_parameter("ring_strength", 0.10 * style.visualizer_brightness)
+		f.set_shader_parameter("sparkle_strength", 0.05 * style.visualizer_brightness)
+		f.set_shader_parameter("viz_type", style.visualizer_type)
 	_wall_material.set_shader_parameter("base_color", style.wall_color)
+	_wall_material.set_shader_parameter("pulse_strength", 0.25 * style.floor_reactivity)
+	_wall_material.set_shader_parameter("sparkle_strength", 0.1 * style.floor_reactivity)
 	_background_material.set_shader_parameter("base_color", style.background_color)
+	_background_material.set_shader_parameter("ring_strength", 0.0)
+	_background_material.set_shader_parameter("viz_type", 4)       # the backing is a plain solid color
+	for i in _ground_layers.size():
+		var g := _ground_layers[i]
+		var viz := 0
+		match GROUND_LAYERS[i].kind:
+			"waves": viz = 6
+			"viz1": viz = style.visualizer_type
+			"viz2": viz = style.visualizer_type_2
+			"viz3": viz = style.visualizer_type_3
+			"disco": viz = 5
+		for k in colors.size():
+			g.set_shader_parameter("disco_" + "abcde"[k], _disco_color(colors[k], style.disco_saturation))
+		g.set_shader_parameter("base_color", style.background_color.lightened(GROUND_LAYERS[i].lighten))
+		g.set_shader_parameter("brightness", style.visualizer_brightness)
+		g.set_shader_parameter("viz_type", viz)
 
 
 func bounds() -> Rect2:
@@ -147,19 +204,40 @@ func _make_tile(c: Vector2i) -> void:
 		m.position = HexGrid.to_world(c) + Vector3(0, WALL_TOP - (TILE_H + WALL_TOP) / 2.0, 0)
 	else:
 		m.mesh = _hex_mesh
-		m.material_override = _floor_a if (c.x - c.y) % 3 != 0 else _floor_b
+		m.material_override = _floors[_floor_variant(c)]
 		m.position = HexGrid.to_world(c) + Vector3(0, -TILE_H / 2.0, 0)
 	_visuals.add_child(m)
 
 
-## Large plane under the board whose rings travel outward on every beat.
+## A floor color pushed toward vivid for the disco floor: same hue, much more saturation and value.
+func _disco_color(c: Color, amount: float) -> Color:
+	return Color.from_hsv(c.h, lerpf(c.s, 1.0, amount), lerpf(c.v, 1.0, amount * 0.9))
+
+
+## Which floor color (index 0..4) a tile gets: a fixed pseudo-random pick, so it is the same every time.
+func _floor_variant(c: Vector2i) -> int:
+	var roll := posmod(hash(c), 100)
+	for i in FLOOR_PICK.size():
+		if roll < FLOOR_PICK[i]:
+			return i
+	return FLOOR_PICK.size()
+
+
+## The ground under the platforms: a solid plane at the bottom and translucent visualizer layers above it
+## (the top layer is the most transparent), so the beat animation has depth.
 func _make_background() -> void:
+	_make_ground_plane(_background_material, TILE_H + GROUND_BOTTOM_DEPTH)
+	for i in range(_ground_layers.size() - 1, -1, -1):     # deepest layer first
+		_make_ground_plane(_ground_layers[i], TILE_H + GROUND_LAYERS[i].depth)
+
+
+func _make_ground_plane(material: Material, depth: float) -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(300, 300)
 	var m := MeshInstance3D.new()
 	m.mesh = plane
-	m.material_override = _background_material
-	m.position.y = -TILE_H - 0.1
+	m.material_override = material
+	m.position.y = -depth
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_visuals.add_child(m)
 
@@ -172,7 +250,7 @@ func _make_marker(c: Vector2i, color: Color, text: String, pillar_height: float)
 	pad.mesh = _hex_mesh
 	pad.material_override = Mats.make(color.darkened(0.35))
 	pad.position = pos + Vector3(0, 0.01, 0)
-	pad.scale = Vector3(1, 0.1, 1)
+	pad.scale = Vector3(1, 0.03 / TILE_H, 1)      # a thin pad (3 cm) whatever the tile thickness
 	_visuals.add_child(pad)
 
 	var pillar := MeshInstance3D.new()
@@ -193,6 +271,8 @@ func _make_marker(c: Vector2i, color: Color, text: String, pillar_height: float)
 	label.font_size = 48
 	label.outline_size = 12
 	label.no_depth_test = true
+	label.render_priority = LABEL_PRIORITY            # drawn after the translucent ground layers
+	label.outline_render_priority = LABEL_PRIORITY - 1
 	label.position = pos + Vector3(0, pillar_height + 0.6, 0)
 	_visuals.add_child(label)
 	_labels[c] = label

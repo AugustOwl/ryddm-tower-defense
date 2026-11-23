@@ -4,13 +4,15 @@ extends PanelContainer
 ##   Enemy deck       difficulty presets, spawn rate, speed / HP scaling, enemy building, unit mix
 ##   Win condition    destroy all enemy bases (always) plus an optional survive-time or kill-count goal
 ##   Music            one track, or a playlist for "DJ death match" levels, and when it switches
-##   Look             floor / wall / background / accent colors and particle amount, speed, size, lifetime
+##   Look             floor / wall / background / accent colors, ground visualizer type and brightness,
+##                    and particle amount, speed, size, lifetime
 ## Layout (the hex map itself) is edited with the toolbar above. Everything is stored in the LevelData
 ## and saved with the level. Each control is "bound" to one property of a settings resource, so adding a
 ## setting is one line in the matching _build_*_tab function.
 
 const MUSIC_MODES := ["Loop the first track", "Next track every N seconds", "Next track when a base is destroyed",
 		"Next track every N kills"]
+const VISUALIZER_TYPES := ["Rings", "Waves", "Cells", "Sparkle", "Off"]
 const WIN_MODES := ["Destroy all enemy bases", "Also: survive for a time", "Also: defeat a number of enemies"]
 
 var _game: Game
@@ -158,9 +160,19 @@ func _build_look_tab() -> void:
 	var box := _page("Look")
 	_color(box, "Floor tile A", _style, "floor_color_a")
 	_color(box, "Floor tile B", _style, "floor_color_b")
+	_color(box, "Floor tile C", _style, "floor_color_c")
+	_color(box, "Floor tile D", _style, "floor_color_d")
+	_color(box, "Floor tile E", _style, "floor_color_e")
 	_color(box, "Walls", _style, "wall_color")
 	_color(box, "Background", _style, "background_color")
 	_color(box, "Accent glow / particles", _style, "accent_color")
+	box.add_child(_text("Ground visualizer"))
+	_option(box, "Visualizer 1 (and floor glow)", VISUALIZER_TYPES, _style, "visualizer_type", true)
+	_option(box, "Visualizer 2", VISUALIZER_TYPES, _style, "visualizer_type_2", true)
+	_option(box, "Visualizer 3", VISUALIZER_TYPES, _style, "visualizer_type_3", true)
+	_spin(box, "Brightness %", _style, "visualizer_brightness", 0, 200, 5, 100.0, true)
+	_spin(box, "Floor reactivity %", _style, "floor_reactivity", 0, 150, 5, 100.0, true)
+	_spin(box, "Disco saturation %", _style, "disco_saturation", 0, 100, 5, 100.0, true)
 	box.add_child(_text("Particles (percent of normal)"))
 	_spin(box, "Amount %", _style, "particle_amount", 20, 300, 10, 100.0)
 	_spin(box, "Speed %", _style, "particle_speed", 40, 250, 10, 100.0)
@@ -267,16 +279,19 @@ func _make_spin(min_value: float, max_value: float, step: float) -> SpinBox:
 	return s
 
 
-## `display_scale` converts a stored fraction to what is shown, e.g. 0.85 -> 85 (%).
+## `display_scale` converts a stored fraction to what is shown, e.g. 0.85 -> 85 (%). `live` re-applies the level's
+## look to the board right away (for settings that change how the board is drawn).
 func _spin(parent: Control, text: String, target: Callable, prop: String, min_value: float, max_value: float,
-		step: float, display_scale := 1.0) -> void:
+		step: float, display_scale := 1.0, live := false) -> void:
 	var spin := _make_spin(min_value, max_value, step)
 	spin.value_changed.connect(func(v: float) -> void:
 		if _syncing:
 			return
 		var obj: Object = target.call()
 		var value := v / display_scale
-		obj.set(prop, int(round(value)) if typeof(obj.get(prop)) == TYPE_INT else value))
+		obj.set(prop, int(round(value)) if typeof(obj.get(prop)) == TYPE_INT else value)
+		if live:
+			_game.apply_style())
 	_row(parent, text, spin)
 	_bindings.append({"kind": "spin", "control": spin, "target": target, "prop": prop, "scale": display_scale})
 
@@ -291,13 +306,16 @@ func _check(parent: Control, text: String, target: Callable, prop: String) -> vo
 	_bindings.append({"kind": "check", "control": check, "target": target, "prop": prop, "scale": 1.0})
 
 
-func _option(parent: Control, text: String, items: Array, target: Callable, prop: String) -> void:
+func _option(parent: Control, text: String, items: Array, target: Callable, prop: String, live := false) -> void:
 	var option := OptionButton.new()
 	for item in items:
 		option.add_item(item)
 	option.item_selected.connect(func(index: int) -> void:
-		if not _syncing:
-			(target.call() as Object).set(prop, index))
+		if _syncing:
+			return
+		(target.call() as Object).set(prop, index)
+		if live:
+			_game.apply_style())
 	_row(parent, text, option)
 	_bindings.append({"kind": "option", "control": option, "target": target, "prop": prop, "scale": 1.0})
 
